@@ -262,8 +262,12 @@ class BatchDatasetOp::Dataset : public DatasetBase {
               batch_size](size_t element_position) -> absl::StatusOr<size_t> {
         size_t batch_element_position = element_position / batch_size;
         size_t input_element_offset = element_position % batch_size;
+        LOG(ERROR) << "batch shuffle index mapper called, element_position: "
+                   << element_position << " , offset: " << input_element_offset;
         TF_ASSIGN_OR_RETURN(size_t shuffled_element_position,
                             parent_index_mapper(batch_element_position));
+        LOG(ERROR) << "shuffled_element_position: "
+                   << shuffled_element_position;
         return shuffled_element_position * batch_size + input_element_offset;
       };
     }
@@ -288,17 +292,24 @@ class BatchDatasetOp::Dataset : public DatasetBase {
     Status RestoreInternal(IteratorContext* ctx,
                            IteratorStateReader* reader) override {
       mutex_lock l(mu_);
+      int64_t input_empty;
+      TF_RETURN_IF_ERROR(
+          reader->ReadScalar(prefix(), kInputImplEmpty, &input_empty));
+
       if (ctx->restored_element_count().has_value()) {
         IteratorContext::Params params(ctx);
         params.restored_element_count =
             *ctx->restored_element_count() * dataset()->batch_size_;
         IteratorContext ctx_copy(params);
-        return RestoreInput(&ctx_copy, reader, input_impl_);
+        if (!input_empty) {
+          TF_RETURN_IF_ERROR(RestoreInput(&ctx_copy, reader, input_impl_));
+          ctx->MergeCheckpoint(ctx_copy.checkpoint());
+        } else {
+          input_impl_.reset();
+        }
+        return absl::OkStatus();
       }
 
-      int64_t input_empty;
-      TF_RETURN_IF_ERROR(
-          reader->ReadScalar(prefix(), kInputImplEmpty, &input_empty));
       if (!static_cast<bool>(input_empty)) {
         TF_RETURN_IF_ERROR(RestoreInput(ctx, reader, input_impl_));
       } else {

@@ -60,16 +60,38 @@ absl::Status GlobalShuffleIterator::GetNext(IteratorContext* ctx,
   }
 
   absl::MutexLock l(&mu_);
-  TF_ASSIGN_OR_RETURN(int64_t output_index,
-                      ctx->index_mapper()(element_count_++));
+  absl::StatusOr<int64_t> shuffled_index =
+      absl::NotFoundError("Default not found");
+
+  while (absl::IsNotFound(shuffled_index.status())) {
+    shuffled_index = ctx->index_mapper()(element_count_++);
+  }
+
+  if (absl::IsOutOfRange(shuffled_index.status())) {
+    *end_of_sequence = true;
+    return absl::OkStatus();
+  }
+
+  TF_RETURN_IF_ERROR(shuffled_index.status());
+
   absl::Status status =
-      dataset_->Get(AnyContext(ctx), output_index, out_tensors);
+      dataset_->Get(AnyContext(ctx), shuffled_index.value(), out_tensors);
   if (absl::IsOutOfRange(status)) {
     *end_of_sequence = true;
     return absl::OkStatus();
   }
   TF_RETURN_IF_ERROR(status);
   *end_of_sequence = false;
+  return absl::OkStatus();
+}
+
+absl::Status GlobalShuffleIterator::Save(const std::string& prefix,
+                                         SerializationContext* ctx,
+                                         IteratorStateWriter* writer) {
+  absl::MutexLock l(&mu_);
+  TF_RETURN_IF_ERROR(writer->WriteScalar(
+      absl::StrFormat("%s::global_shuffle_iterator", prefix), "next_index",
+      element_count_));
   return absl::OkStatus();
 }
 
@@ -82,6 +104,22 @@ absl::Status GlobalShuffleIterator::Restore(IteratorContext* ctx) {
 
   absl::MutexLock l(&mu_);
   element_count_ = *(ctx->restored_element_count());
+  return absl::OkStatus();
+}
+
+absl::Status GlobalShuffleIterator::Restore(const std::string& prefix,
+                                            IteratorContext* ctx,
+                                            IteratorStateReader* reader) {
+  if (!ctx->restored_element_count().has_value()) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Trying to restore random element count for dataset ",
+        dataset_->DebugString(), " which is not globally shuffled."));
+  }
+
+  absl::MutexLock l(&mu_);
+  TF_RETURN_IF_ERROR(
+      reader->ReadScalar(absl::StrFormat("%s::global_shuffle_iterator", prefix),
+                         "next_index", &element_count_));
   return absl::OkStatus();
 }
 
