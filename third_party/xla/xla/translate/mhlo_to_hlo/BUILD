@@ -105,6 +105,7 @@ cc_library(
         "//xla:types",
         "//xla:xla_data_proto_cc",
         "//xla/client:xla_builder",
+        "//xla/client:xla_computation",
         "//xla/client/lib:approx_topk",
         "//xla/client/lib:approx_topk_shape",
         "//xla/client/lib:matrix",

@@ -70,6 +70,7 @@ limitations under the License.
 #include "xla/client/lib/quantize.h"
 #include "xla/client/lib/slicing.h"
 #include "xla/client/xla_builder.h"
+#include "xla/client/xla_computation.h"
 #include "xla/comparison_util.h"
 #include "xla/hlo/ir/dynamic_parameter_binding.h"
 #include "xla/hlo/ir/hlo_instructions.h"
@@ -956,7 +957,8 @@ LogicalResult ExportXlaOp(CollectiveBroadcastOp op, OpLoweringContext ctx) {
 }
 
 LogicalResult ExportXlaOp(CompositeOp, OpLoweringContext) {
-  // TODO: b/328526226 - Implement MHLO export for CompositeOp.
+  // Failure on purpose because `mhlo::CompositeOp` will be handled by
+  // special purpose logic in `ConvertToHloModule::Lower`.
   return failure();
 }
 
@@ -3266,6 +3268,59 @@ LogicalResult ConvertToHloModule::Lower(
         *return_value = operand;
       }
     }
+
+    return success();
+  }
+
+  if (auto composite_op = dyn_cast<mhlo::CompositeOp>(inst)) {
+    SmallVector<xla::XlaOp, 1> operands;
+    for (const Value& val : inst->getOperands()) {
+      xla::XlaOp operand;
+      if (failed(GetXlaOp(val, value_map, &operand, inst))) {
+        return failure();
+      }
+      operands.push_back(operand);
+    }
+
+    xla::XlaComputation computation;
+    if (failed(LowerBasicBlockAsFunction(
+            /*block=*/&module_
+                .lookupSymbol<mlir::func::FuncOp>(
+                    composite_op.getDecomposition())
+                .getBody()
+                .front(),
+            /*builder=*/
+            module_builder_
+                .CreateSubBuilder(composite_op.getDecomposition().str())
+                .get(),
+            /*is_entry_function=*/false,
+            /*ensure_single_arg=*/false,
+            /*entry_args_same_across_replicas=*/{},
+            /*arg_shardings=*/{}, /*ret_shardings=*/{},
+            /*fe_attrs=*/{}, /*result=*/&computation,
+            /*implicit_operands=*/{}))) {
+      return failure();
+    }
+
+    std::string composite_attributes;
+    llvm::raw_string_ostream(composite_attributes)
+        << composite_op.getCompositeAttributes();
+
+    xla::XlaOp composite_call = xla::CompositeCall(
+        builder, computation, operands, composite_op.getName().str(),
+        composite_attributes, composite_op.getVersion());
+
+    // Use GetTupleElement for multiple outputs
+    unsigned num_results = composite_op.getNumResults();
+    if (num_results > 1) {
+      for (unsigned i = 0; i != num_results; ++i) {
+        value_map[composite_op.getResult(i)] =
+            xla::GetTupleElement(composite_call, i);
+      }
+    } else if (num_results == 1) {
+      value_map[composite_op.getResult(0)] = composite_call;
+    }
+    *return_value = composite_call;
 
     return success();
   }

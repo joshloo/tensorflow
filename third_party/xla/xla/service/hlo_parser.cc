@@ -2234,8 +2234,11 @@ HloInstruction* HloParserImpl::CreateInstruction(  // NOLINT
     }
     case HloOpcode::kCall: {
       optional<HloComputation*> to_apply;
+      optional<bool> is_composite = false;
       attrs["to_apply"] = {/*required=*/true, AttrTy::kHloComputation,
                            &to_apply};
+      attrs["is_composite"] = {/*required=*/false, AttrTy::kBool,
+                               &is_composite};
       if ((!preset_operands && !ParseOperands(&operands, builder)) ||
           !ParseAttributes(attrs, allow_attributes)) {
         return nullptr;
@@ -2251,8 +2254,10 @@ HloInstruction* HloParserImpl::CreateInstruction(  // NOLINT
           })) {
         return nullptr;
       }
-      return builder->AddInstruction(
-          HloInstruction::CreateCall(*shape, operands, *to_apply));
+
+      auto call_op = HloInstruction::CreateCall(*shape, operands, *to_apply);
+      call_op->set_is_composite(is_composite.value());
+      return builder->AddInstruction(std::move(call_op));
     }
     case HloOpcode::kReduceWindow: {
       optional<HloComputation*> reduce_computation;
@@ -3403,11 +3408,21 @@ bool HloParserImpl::ParseFrontendAttributes(
       if (!ParseAttributeName(&attribute)) {
         return false;
       }
-      if (lexer_.GetKind() != TokKind::kString) {
+
+      std::string result;
+      if (lexer_.GetKind() == TokKind::kString) {
+        if (!ParseString(&result)) {
+          return false;
+        }
+      } else if (lexer_.GetKind() == TokKind::kLbrace) {
+        if (!ParseJsonDict(&result)) {
+          return false;
+        }
+      } else {
         return false;
       }
-      (*frontend_attributes->mutable_map())[attribute] = lexer_.GetStrVal();
-      lexer_.Lex();
+
+      (*frontend_attributes->mutable_map())[attribute] = result;
     } while (EatIfPresent(TokKind::kComma));
   }
   return ParseToken(TokKind::kRbrace,
