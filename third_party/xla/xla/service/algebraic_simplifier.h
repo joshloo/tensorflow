@@ -322,8 +322,8 @@ class AlgebraicSimplifierOptions {
   bool executing_on_cpu_{false};
   bool use_associative_reordering_{false};
   double associative_reordering_threshold_{2.0};
-  bool raise_slice_and_reduce_through_dot_{false};
-  double raise_slice_and_reduce_through_dot_threshold_{2.0};
+  bool raise_slice_and_reduce_through_dot_{true};
+  double raise_slice_and_reduce_through_dot_threshold_{1.1};
   bool use_convert_constant_folding_{false};
   Metadata metadata_;
 };

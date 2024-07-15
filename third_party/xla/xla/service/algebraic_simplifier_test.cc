@@ -6411,6 +6411,66 @@ TEST_F(AlgebraicSimplifierTest, DotAssociativeReorder) {
                                 m::Dot(m::Parameter(1), m::Parameter(2)))));
 }
 
+TEST_F(AlgebraicSimplifierTest, DotLeftDotSharedBatchReorder) {
+  const char* hlo_string = R"(
+    HloModule module
+
+    ENTRY test {
+        a = f32[5,150,5] parameter(0)
+        b = f32[5,5,5] parameter(1)
+        c = f32[5,5,5] parameter(2)
+
+        inner = f32[5,150,5] dot(a,b),
+                lhs_batch_dims={0}, lhs_contracting_dims={2},
+                rhs_batch_dims={0}, rhs_contracting_dims={2}
+        ROOT outer = f32[5,150,5] dot(inner,c),
+                lhs_batch_dims={0}, lhs_contracting_dims={2},
+                rhs_batch_dims={0}, rhs_contracting_dims={2}
+      }
+    )";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+
+  AlgebraicSimplifierOptions options;
+  options.set_use_associative_reordering(true);
+  options.set_associative_reordering_threshold(1.5);
+  AlgebraicSimplifier simplifier(options);
+  EXPECT_TRUE(simplifier.Run(module.get()).value());
+  ASSERT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Dot(m::Parameter(0),
+                                m::Dot(m::Parameter(1), m::Parameter(2)))));
+}
+
+TEST_F(AlgebraicSimplifierTest, DotRightDotSharedBatchReorder) {
+  const char* hlo_string = R"(
+    HloModule module
+
+    ENTRY test {
+        a = f32[2,3,3] parameter(0)
+        b = f32[2,3,3] parameter(1)
+        c = f32[2,3,16] parameter(2)
+
+        inner = f32[2,3,16] dot(b,c),
+                lhs_batch_dims={0}, lhs_contracting_dims={2},
+                rhs_batch_dims={0}, rhs_contracting_dims={1}
+        ROOT outer = f32[2,3,16] dot(a,inner),
+                lhs_batch_dims={0}, lhs_contracting_dims={2},
+                rhs_batch_dims={0}, rhs_contracting_dims={1}
+      }
+    )";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+
+  AlgebraicSimplifierOptions options;
+  options.set_use_associative_reordering(true);
+  options.set_associative_reordering_threshold(1.5);
+  AlgebraicSimplifier simplifier(options);
+  EXPECT_TRUE(simplifier.Run(module.get()).value());
+  ASSERT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Dot(m::Dot(m::Parameter(0), m::Parameter(1)),
+                                m::Parameter(2))));
+}
+
 TEST_F(AlgebraicSimplifierTest, DotReverseLeftReorder) {
   const char* hlo_string = R"(
     HloModule module
@@ -11356,14 +11416,14 @@ TEST_F(AlgebraicSimplifierTest, SparseDotMoveSliceToOperands) {
   const char* kHlo = R"(
     HloModule m
     ENTRY test {
-      %lhs = f32[7,12,16] parameter(0)
-      %rhs = f32[7,22,32] parameter(1)
-      %meta = u16[7,12,2] parameter(2)
-      %dot = f32[7,12,22] dot(%lhs, %rhs, %meta),
+      %lhs = f32[7,72,16] parameter(0)
+      %rhs = f32[7,100,32] parameter(1)
+      %meta = u16[7,72,2] parameter(2)
+      %dot = f32[7,72,100] dot(%lhs, %rhs, %meta),
           lhs_batch_dims={0}, rhs_batch_dims={0},
           lhs_contracting_dims={2}, rhs_contracting_dims={2},
           sparsity=L.2@2:4
-      ROOT %slice = f32[5,10,20] slice(%dot), slice={[0:5], [0:10], [0:20]}
+      ROOT %slice = f32[5,60,80] slice(%dot), slice={[0:5], [0:60], [0:80]}
     }
   )";
   TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(kHlo));
@@ -11374,7 +11434,7 @@ TEST_F(AlgebraicSimplifierTest, SparseDotMoveSliceToOperands) {
   EXPECT_THAT(root, GmockMatch(SparseDotMatcher(m::Slice(m::Parameter(0)),
                                                 m::Slice(m::Parameter(1)),
                                                 m::Slice(m::Parameter(2)))
-                                   .WithShape(F32, {5, 10, 20})));
+                                   .WithShape(F32, {5, 60, 80})));
   auto dot = Cast<HloDotInstruction>(root);
   auto descriptor = dot->sparsity().front();
   EXPECT_EQ(descriptor.index(), 0);

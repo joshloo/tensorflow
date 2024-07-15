@@ -3346,22 +3346,43 @@ AlgebraicSimplifierVisitor::AssociativeReorderDotOperator(
       }
 
       // Use maps to create new dot dnums and vector of reduce dims
+      int64_t deleted_dims = 0;
+      new_dnums.clear_lhs_batch_dimensions();
+      new_dnums.clear_rhs_batch_dimensions();
+      for (int64_t i = 0; i < dnums.lhs_batch_dimensions_size(); i++) {
+        auto from_index = lhs_to_rhs ? dnums.lhs_batch_dimensions()[i]
+                                     : dnums.rhs_batch_dimensions()[i];
+        auto to_index = lhs_to_rhs ? dnums.rhs_batch_dimensions()[i]
+                                   : dnums.lhs_batch_dimensions()[i];
+        if (map_broadcast_dims[from_index] == -1) {
+          // This is a batch dimension introduced by the broadcast
+          new_broadcast_shape.DeleteDimension(from_index - deleted_dims);
+          deleted_dims++;
+          make_hlo = true;
+        } else {
+          if (lhs_to_rhs) {
+            new_dnums.add_lhs_batch_dimensions(map_broadcast_dims[from_index]);
+            new_dnums.add_rhs_batch_dimensions(to_index);
+          } else {
+            new_dnums.add_lhs_batch_dimensions(to_index);
+            new_dnums.add_rhs_batch_dimensions(map_broadcast_dims[from_index]);
+          }
+        }
+      }
       new_dnums.clear_lhs_contracting_dimensions();
       new_dnums.clear_rhs_contracting_dimensions();
-      int64_t deleted_dims = 0;
       for (int64_t i = 0; i < dnums.lhs_contracting_dimensions_size(); i++) {
         auto from_index = lhs_to_rhs ? dnums.lhs_contracting_dimensions()[i]
                                      : dnums.rhs_contracting_dimensions()[i];
         auto to_index = lhs_to_rhs ? dnums.rhs_contracting_dimensions()[i]
                                    : dnums.lhs_contracting_dimensions()[i];
         if (map_broadcast_dims[from_index] == -1) {
-          // This is a contracting broadcast dimension
+          // This is a contracting dimension introduced by the broadcast
           reduce_dims.push_back(to_index);
           new_broadcast_shape.DeleteDimension(from_index - deleted_dims);
           deleted_dims++;
           make_hlo = true;
         } else {
-          // This is a contracting nonbroadcast dimension
           if (lhs_to_rhs) {
             new_dnums.add_lhs_contracting_dimensions(
                 map_broadcast_dims[from_index]);
@@ -3554,48 +3575,29 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
           other_index = outer_dnums.lhs_batch_dimensions(i);
         }
 
-        // Once we have the inner_index, we determine whether this index
-        // corresponds to a dimension coming from the lhs or rhs of inner
-        bool from_inner_lhs = map_inner_rhs[inner_index] == -1;
-
-        // The map we use depends on which operand of inner this dim comes from
-        std::vector<int64_t> map;
-        if (from_inner_lhs) {
-          map = map_inner_lhs;
-        } else {
-          map = map_inner_rhs;
-        }
-
-        // Whether the mapped value goes into the lhs or rhs of the new dnums
-        // depends on whether inner was the lhs or rhs operand of outer
-        int64_t lhs_index, rhs_index;
-        if (outer_lhs_dot) {
-          lhs_index = map[inner_index];
-          rhs_index = other_index;
-        } else {
-          lhs_index = other_index;
-          rhs_index = map[inner_index];
-        }
-
-        // Finally, we have to determine which dnums to add to
-        DotDimensionNumbers* dnums;
-        if (outer_lhs_dot) {
-          if (from_inner_lhs) {
-            dnums = &ac_dnums;
-          } else {
-            dnums = &bc_dnums;
-          }
-        } else {
-          if (from_inner_lhs) {
-            dnums = &ab_dnums;
-          } else {
-            dnums = &ac_dnums;
+        for (auto& map : {map_inner_lhs, map_inner_rhs}) {
+          int64_t mapped_index = map[inner_index];
+          if (mapped_index != -1) {
+            // Whether the mapped value is the lhs or rhs of the new dnums
+            // depends on whether inner is the lhs or rhs operand of outer. The
+            // dnums itself depends on this and also on which map we are
+            // iterating through
+            DotDimensionNumbers* dnums;
+            int64_t lhs_index, rhs_index;
+            if (outer_lhs_dot) {
+              dnums = (map == map_inner_lhs) ? &ac_dnums : &bc_dnums;
+              lhs_index = mapped_index;
+              rhs_index = other_index;
+            } else {
+              dnums = (map == map_inner_lhs) ? &ab_dnums : &ac_dnums;
+              lhs_index = other_index;
+              rhs_index = mapped_index;
+            }
+            // Add the batch dimensions
+            dnums->add_lhs_batch_dimensions(lhs_index);
+            dnums->add_rhs_batch_dimensions(rhs_index);
           }
         }
-
-        // Add the batch dimensions
-        dnums->add_lhs_batch_dimensions(lhs_index);
-        dnums->add_rhs_batch_dimensions(rhs_index);
       }
 
       // We now do the same thing for the contracting dimensions of outer
@@ -3612,9 +3614,16 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
           other_index = outer_dnums.lhs_contracting_dimensions(i);
         }
 
+        // If a dimension of inner is the result of batching and it is
+        // contracted in outer, we stop trying to reorder
+        if (map_inner_lhs[inner_index] != -1 &&
+            map_inner_rhs[inner_index] != -1) {
+          return absl::OkStatus();
+        }
+
         // Once we have the inner_index, we determine whether this index
         // corresponds to a dimension coming from the lhs or rhs of inner
-        bool from_inner_lhs = map_inner_rhs[inner_index] == -1;
+        bool from_inner_lhs = map_inner_lhs[inner_index] != -1;
 
         // The map we use depends on which operand of inner this dim comes from
         std::vector<int64_t> map;
@@ -3655,6 +3664,10 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
         dnums->add_lhs_contracting_dimensions(lhs_index);
         dnums->add_rhs_contracting_dimensions(rhs_index);
       }
+
+      VLOG(1) << "ab_dnums: " << ab_dnums.DebugString();
+      VLOG(1) << "ac_dnums: " << ac_dnums.DebugString();
+      VLOG(1) << "bc_dnums: " << bc_dnums.DebugString();
 
       // ab_dnums, ac_dnums, and bc_dnums are now complete. We can now use these
       // dnums to construct the dnums for the new_inner and new_outer.
@@ -3714,8 +3727,11 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
             rhs_index = other_index;
           }
 
-          new_outer_dnums.add_lhs_batch_dimensions(lhs_index);
-          new_outer_dnums.add_rhs_batch_dimensions(rhs_index);
+          if (!absl::c_linear_search(new_outer_dnums.lhs_batch_dimensions(),
+                                     lhs_index)) {
+            new_outer_dnums.add_lhs_batch_dimensions(lhs_index);
+            new_outer_dnums.add_rhs_batch_dimensions(rhs_index);
+          }
         }
         for (int64_t i = 0; i < dnums.lhs_contracting_dimensions_size(); ++i) {
           int64_t new_inner_index, other_index;
@@ -3772,6 +3788,7 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
             new_inner,
             MakeDotHlo(new_inner_lhs, new_inner_rhs, new_inner_dnums,
                        dot->precision_config(), dot->shape().element_type()));
+        VLOG(1) << "new inner: " << new_inner->ToString();
         HloInstruction *new_outer_lhs, *new_outer_rhs;
         if (outer_lhs_dot) {
           new_outer_lhs = inner->mutable_operand(0);
@@ -3784,6 +3801,7 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
             new_outer,
             MakeDotHlo(new_outer_lhs, new_outer_rhs, new_outer_dnums,
                        dot->precision_config(), dot->shape().element_type()));
+        VLOG(1) << "new outer: " << new_outer->ToString();
 
         // Depending on the batch dimensions of the original instruction,
         // reordering may permute the dimensions of the shape. To correct for
@@ -3852,10 +3870,10 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
           HloInstruction* transposed_new_outer;
           TF_ASSIGN_OR_RETURN(transposed_new_outer,
                               MakeTransposeHlo(new_outer, permutation));
-          VLOG(10) << "Reordering with associativity and transpose";
+          VLOG(1) << "Reordering with associativity and transpose";
           return ReplaceInstruction(dot, transposed_new_outer);
         } else {
-          VLOG(10) << "Reordering with associativity";
+          VLOG(1) << "Reordering with associativity";
           return ReplaceInstruction(dot, new_outer);
         }
       }
@@ -3866,7 +3884,12 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
     TF_ASSIGN_OR_RETURN(HloInstruction * dot_operator_reordered,
                         AssociativeReorderDotOperator(dot_cast));
     if (dot_operator_reordered) {
-      VLOG(10) << "Reordering dot operand to its mirror";
+      VLOG(1) << "Reordering dot operand to its mirror";
+      VLOG(1) << "dot: " << dot->ToString();
+      VLOG(1) << "dot_lhs: " << dot->operand(0)->ToString();
+      VLOG(1) << "dot_rhs: " << dot->operand(1)->ToString();
+      VLOG(1) << "dot_operator_reordered: "
+              << dot_operator_reordered->ToString();
       return ReplaceInstruction(dot, dot_operator_reordered);
     }
   }
@@ -5210,7 +5233,7 @@ absl::Status AlgebraicSimplifierVisitor::HandleConvert(
       constant->user_count() == 1 && primitive_util::BitWidth(dest_type) >= 8) {
     TF_ASSIGN_OR_RETURN(Literal dest_literal,
                         constant->literal().Convert(dest_type));
-    VLOG(10) << "Replacing convert(constant) with constant";
+    VLOG(1) << "Replacing convert(constant) with constant";
     return ReplaceWithNewInstruction(
         convert, HloInstruction::CreateConstant(std::move(dest_literal)));
   }
@@ -6589,19 +6612,29 @@ absl::Status AlgebraicSimplifierVisitor::HandleSlice(HloInstruction* slice) {
       }
     }
 
-    // Finally, create Hlo for the new dot and reorder
-    TF_ASSIGN_OR_RETURN(
-        HloInstruction * new_dot,
-        MakeDotHlo(new_lhs, new_rhs, dnums, dot->precision_config(),
-                   dot->shape().element_type(), new_sparsity, new_meta));
+    int64_t old_slice_operand_elements = ShapeUtil::ElementsIn(slice->shape());
+    int64_t new_slice_operand_elements = 0;
+    if (new_lhs->opcode() == HloOpcode::kSlice) {
+      new_slice_operand_elements += ShapeUtil::ElementsIn(new_lhs->shape());
+    }
+    if (new_rhs->opcode() == HloOpcode::kSlice) {
+      new_slice_operand_elements += ShapeUtil::ElementsIn(new_rhs->shape());
+    }
+    new_slice_operand_elements *= dot->user_count();
 
     // We should only do this reorder if both new_lhs and new_rhs have free
     // dimensions. Otherwise, it will conflict with an existing optimization
     // that converts dot to mul(broadcast)
     if (!DotHasOnlyBatchAndContractingOnOneOperand(
             ShapeUtil::TrueRank(new_lhs->shape()),
-            ShapeUtil::TrueRank(new_rhs->shape()), dnums)) {
-      VLOG(10) << "Reordering slice into dot operands";
+            ShapeUtil::TrueRank(new_rhs->shape()), dnums) &&
+        new_slice_operand_elements <= old_slice_operand_elements) {
+      // Finally, create Hlo for the new dot and reorder
+      TF_ASSIGN_OR_RETURN(
+          HloInstruction * new_dot,
+          MakeDotHlo(new_lhs, new_rhs, dnums, dot->precision_config(),
+                     dot->shape().element_type(), new_sparsity, new_meta));
+      VLOG(1) << "Reordering slice into dot operands";
       return ReplaceInstruction(slice, new_dot);
     }
   }
@@ -7531,7 +7564,7 @@ absl::Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
       // Only reorder if it would result in sufficiently fewer flops
       if (old_flops / static_cast<double>(new_flops) >
           options_.raise_slice_and_reduce_through_dot_threshold()) {
-        VLOG(10) << "Reordering reduce into dot operands";
+        VLOG(1) << "Reordering reduce into dot operands";
         return ReplaceInstruction(reduce, new_dot);
       }
     }
