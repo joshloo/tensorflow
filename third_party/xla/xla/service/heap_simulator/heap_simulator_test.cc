@@ -2019,6 +2019,27 @@ TEST_F(IntervalTreeTest, ThreeLevelsRightLeftChunkDifferent) {
   ASSERT_EQ(tree.GetRoot(), nullptr);
 }
 
+TEST_F(IntervalTreeTest, BufferIntervalTreeToAsciiArt) {
+  // Buffer 1: memory block [0, 16), time interval [15, 25]
+  // Buffer 2: memory block [16, 48), time interval [15, 19]
+  // Buffer 3: memory block [32, 64), time interval [20, 22]
+  BufferIntervalTree tree;
+  tree.Add(15, 25, HeapSimulator::Chunk::FromOffsetEnd(0, 16));
+  tree.Add(15, 19, HeapSimulator::Chunk::FromOffsetEnd(16, 48));
+  tree.Add(20, 22, HeapSimulator::Chunk::FromOffsetEnd(32, 64));
+  std::string expected_string = R"string(
+Memory map for time: [18,23], memory_block_size: 16, group_size: 3
+
+ ..# ##. 64
+ ### ##. 48
+ ##. ... 32
+ ### ### 16
+ 890 123
+
+)string";
+  EXPECT_EQ(tree.NodesOverlappingInTimeToAsciiArt(18, 23, 3), expected_string);
+}
+
 class SlicedBufferIntervalTest : public ::testing::Test {
  public:
   using HeapTy = GlobalDecreasingSizeBestFitHeap<HloValue>;
