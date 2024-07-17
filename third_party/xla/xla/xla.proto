@@ -873,7 +873,10 @@ message DebugOptions {
   // Relative precision for comparing different GEMM solutions
   float xla_gpu_autotune_gemm_rtol = 316;
 
-  // Next id: 317
+  // If enabled, uses the libnvjitlink library for PTX compilation and linking
+  bool xla_gpu_enable_libnvjitlink = 317;
+
+  // Next id: 318
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.
