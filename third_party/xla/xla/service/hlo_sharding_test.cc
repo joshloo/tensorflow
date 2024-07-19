@@ -107,6 +107,13 @@ TEST_F(HloShardingTest, ProtoRoundTrip) {
   *replicated->add_metadata() = GetMetadata("c");
   auto* manual = proto.add_tuple_shardings();
   manual->set_type(OpSharding::MANUAL);
+  auto* partial_tile = proto.add_tuple_shardings();
+  partial_tile->set_type(OpSharding::OTHER);
+  partial_tile->add_tile_assignment_devices(1);
+  partial_tile->add_tile_assignment_devices(2);
+  partial_tile->add_tile_assignment_dimensions(1);
+  partial_tile->add_tile_assignment_dimensions(2);
+  *partial_tile->add_metadata() = GetMetadata("d");
   HloSharding sharding = HloSharding::FromProto(proto).value();
   EXPECT_TRUE(protobuf_util::ProtobufEquals(proto, sharding.ToProto()));
 }

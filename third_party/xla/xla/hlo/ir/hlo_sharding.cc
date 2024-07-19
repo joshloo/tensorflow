@@ -131,6 +131,13 @@ HloSharding HloSharding::Tile1D(const Shape& input_shape, int64_t num_tiles,
 HloSharding HloSharding::PartialTile(
     const TileAssignment& tile_assignment_last_dim_replicate,
     absl::Span<const OpMetadata> metadata) {
+  return PartialTileImpl(tile_assignment_last_dim_replicate,
+                         /*sort_inner_dim=*/true, metadata);
+}
+
+HloSharding HloSharding::PartialTileImpl(
+    const TileAssignment& tile_assignment_last_dim_replicate,
+    bool sort_inner_dim, absl::Span<const OpMetadata> metadata) {
   if (tile_assignment_last_dim_replicate.num_dimensions() == 1 ||
       tile_assignment_last_dim_replicate.dimensions().back() ==
           tile_assignment_last_dim_replicate.num_elements()) {
@@ -143,6 +150,11 @@ HloSharding HloSharding::PartialTile(
         tile_assignment_last_dim_replicate.Reshape(new_tile_dims),
         /*replicate_on_last_tile_dim=*/false, metadata);
   }
+  if (!sort_inner_dim) {
+    return HloSharding(tile_assignment_last_dim_replicate,
+                       /*replicate_on_last_tile_dim=*/true, metadata);
+  }
+
   const int64_t group_size =
       tile_assignment_last_dim_replicate.dimensions().back();
   if (tile_assignment_last_dim_replicate.iota_) {
@@ -205,6 +217,14 @@ HloSharding HloSharding::Subgroup(
     const TileAssignment& tile_assignment,
     absl::Span<const OpSharding::Type> subgroup_types,
     absl::Span<const OpMetadata> metadata) {
+  return SubgroupImpl(tile_assignment, subgroup_types,
+                      /*sort_partial_tile=*/true, metadata);
+}
+
+HloSharding HloSharding::SubgroupImpl(
+    const TileAssignment& tile_assignment,
+    absl::Span<const OpSharding::Type> subgroup_types, bool sort_partial_tile,
+    absl::Span<const OpMetadata> metadata) {
   if (subgroup_types.empty()) {
     return HloSharding(tile_assignment,
                        /*replicate_on_last_tile_dim=*/false, metadata);
@@ -255,12 +275,13 @@ HloSharding HloSharding::Subgroup(
   needs_merging |= subgroup_count > 1;
   // Make sure the replicate dims are at the end so that we can leverage
   // PartialTile() to sort the elements.
-  auto create_sharding = [](const TileAssignment& tiles,
-                            absl::Span<const OpSharding::Type> types,
-                            absl::Span<const OpMetadata> metadata) {
+  auto create_sharding = [sort_partial_tile](
+                             const TileAssignment& tiles,
+                             absl::Span<const OpSharding::Type> types,
+                             absl::Span<const OpMetadata> metadata) {
     if (types.size() == 1 && types.back() == OpSharding::REPLICATED) {
       // Normalize to partial tile.
-      return PartialTile(tiles, metadata);
+      return PartialTileImpl(tiles, sort_partial_tile, metadata);
     }
     if (types.size() == 1 && types.back() == OpSharding::MANUAL &&
         tiles.num_elements() == tiles.dimensions().back()) {
@@ -271,7 +292,8 @@ HloSharding HloSharding::Subgroup(
       // If the last type is REPLICATED, we first create a partially replicated
       // sharding without other subgroups so that the elements are sorted. Then
       // we fix the subgroup types.
-      HloSharding sharding = PartialTile(tiles, metadata);
+      HloSharding sharding =
+          PartialTileImpl(tiles, sort_partial_tile, metadata);
       sharding.replicate_on_last_tile_dim_ = false;
       for (const OpSharding::Type type : types) {
         sharding.subgroup_types_.push_back(type);
@@ -890,8 +912,8 @@ absl::Status HloSharding::ValidateNonTuple(
             .SetShardGroupFromProto(proto));
   }
   if (proto.replicate_on_last_tile_dim()) {
-    return std::move(PartialTile(create_tile_assignment(), metadata)
-                         .SetShardGroupFromProto(proto));
+    return PartialTileImpl(create_tile_assignment(), /*sort_inner_dim=*/false,
+                           metadata);
   }
   return std::move(HloSharding(create_tile_assignment(),
                                /*replicate_on_last_tile_dim=*/false, metadata)

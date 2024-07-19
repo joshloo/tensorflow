@@ -122,6 +122,15 @@ class HloSharding {
         TileAssignment(std::make_shared<const Array<int64_t>>(tile_assignment)),
         subgroup_types, metadata);
   }
+  // Similar to `Subgroup` but the in the case of PartialTile, the inner dim
+  // elements are not sorted.
+  static HloSharding SubgroupNoSorting(
+      const TileAssignment& tile_assignment,
+      absl::Span<const OpSharding::Type> subgroup_types,
+      absl::Span<const OpMetadata> metadata = {}) {
+    return SubgroupImpl(tile_assignment, subgroup_types,
+                        /*sort_partial_tile=*/false, metadata);
+  }
 
   // Creates a new sharding which splits a one-dimensional input shape into
   // `num_tiles` tiles.
@@ -137,6 +146,11 @@ class HloSharding {
   // empty tuples, the shardings array must have one element.
   static HloSharding Tuple(const Shape& tuple_shape,
                            absl::Span<const HloSharding> shardings);
+
+  // Creates a new sharding for a flat tuple type.
+  static HloSharding FlatTuple(std::vector<HloSharding> sub_shardings) {
+    return HloSharding(std::move(sub_shardings));
+  }
 
   // Creates a new sharding for a tuple type, with a single input sharding
   // repeated on each leaf.
@@ -626,6 +640,15 @@ class HloSharding {
         << other.tile_assignment_.ToString();
   }
   friend class HloShardingTestHelper;
+
+  static HloSharding PartialTileImpl(
+      const TileAssignment& tile_assignment_last_dim_replicate,
+      bool sort_inner_dim, absl::Span<const OpMetadata> metadata);
+
+  static HloSharding SubgroupImpl(
+      const TileAssignment& tile_assignment,
+      absl::Span<const OpSharding::Type> subgroup_types, bool sort_partial_tile,
+      absl::Span<const OpMetadata> metadata);
 
   // Checks that the number of elements in tuple_elements_ is consistent with
   // the tuple shape passes as argument.
