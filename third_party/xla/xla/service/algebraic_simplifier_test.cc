@@ -11725,5 +11725,82 @@ TEST_F(AlgebraicSimplifierTest, KeepInt4ConvertConstant) {
   ASSERT_FALSE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
 }
 
+TEST_F(AlgebraicSimplifierTest, SinkCbrtThroughMax) {
+  absl::string_view hlo_string = R"(
+    HloModule module
+
+    ENTRY test {
+        a = bf16[17,96,120] parameter(0)
+        b = bf16[17,96,120] parameter(1)
+        cbrt_a = bf16[17,96,120] cbrt(a)
+        cbrt_b = bf16[17,96,120] cbrt(b)
+        ROOT max = bf16[17,96,120] maximum(cbrt_a, cbrt_b)
+      }
+    )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo_string));
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(
+      root, GmockMatch(m::Cbrt(m::Maximum(m::Parameter(0), m::Parameter(1)))));
+}
+
+TEST_F(AlgebraicSimplifierTest, SinkErfThroughMax) {
+  absl::string_view hlo_string = R"(
+    HloModule module
+
+    ENTRY test {
+        a = f16[8,2304,8] parameter(0)
+        b = f16[8,2304,8] parameter(1)
+        erf_a = f16[8,2304,8] erf(a)
+        erf_b = f16[8,2304,8] erf(b)
+        ROOT max = f16[8,2304,8] maximum(erf_a, erf_b)
+      }
+    )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo_string));
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(root,
+              GmockMatch(m::Erf(m::Maximum(m::Parameter(0), m::Parameter(1)))));
+}
+
+TEST_F(AlgebraicSimplifierTest, SinkLogisticThroughMax) {
+  absl::string_view hlo_string = R"(
+    HloModule module
+
+    ENTRY test {
+        a = f32[2,3,340,1024] parameter(0)
+        b = f32[2,3,340,1024] parameter(1)
+        logistic_a = f32[2,3,340,1024] logistic(a)
+        logistic_b = f32[2,3,340,1024] logistic(b)
+        ROOT max = f32[2,3,340,1024] maximum(logistic_a, logistic_b)
+      }
+    )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo_string));
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(
+      root,
+      GmockMatch(m::Logistic(m::Maximum(m::Parameter(0), m::Parameter(1)))));
+}
+
+TEST_F(AlgebraicSimplifierTest, SinkTanhThroughMax) {
+  absl::string_view hlo_string = R"(
+    HloModule module
+
+    ENTRY test {
+        a = bf16[8,8192] parameter(0)
+        b = bf16[8,8192] parameter(1)
+        tanh_a = bf16[8,8192] tanh(a)
+        tanh_b = bf16[8,8192] tanh(b)
+        ROOT max = bf16[8,8192] maximum(tanh_a, tanh_b)
+      }
+    )";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo_string));
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(
+      root, GmockMatch(m::Tanh(m::Maximum(m::Parameter(0), m::Parameter(1)))));
+}
+
 }  // namespace
 }  // namespace xla
