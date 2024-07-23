@@ -37,6 +37,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/gather.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/pad.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/reduce.h"
+#include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/reduce_window.h"
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/legalize_hlo_conversions/util.h"  // IWYU pragma: keep
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/passes.h"
 #include "tensorflow/compiler/mlir/lite/transforms/passes.h"  // IWYU pragma: keep
@@ -65,23 +66,22 @@ std::optional<bool> IsCbrtLegal(mhlo::CbrtOp op) {
 #include "tensorflow/compiler/mlir/lite/stablehlo/transforms/generated_tflite_legalize_hlo.inc"
 void LegalizeHloToTfLitePass::runOnOperation() {
   MLIRContext* context = &getContext();
-
   RewritePatternSet patterns(context);
-  patterns.add<odml::ConvertCustomCallOp, odml::LowerDotGeneralOp,
-               LegalizeConv>(context);
+  patterns.add<odml::ConvertCustomCallOp, odml::LowerDotGeneralOp>(context);
   populateWithGenerated(patterns);
 
   ConversionTarget target(*context);
   target.addLegalDialect<TFL::TensorFlowLiteDialect, mhlo::MhloDialect>();
   target.addLegalOp<func::CallOp, func::ConstantOp, arith::ConstantOp>();
   target.addDynamicallyLegalOp<mhlo::CustomCallOp>(IsCustomCallLegal);
-  target.addDynamicallyLegalOp<mhlo::ConvolutionOp>(IsConvLegal);
   target.addDynamicallyLegalOp<mhlo::CbrtOp>(IsCbrtLegal);
   target.addIllegalOp<mhlo::DotGeneralOp, mhlo::DotOp, mhlo::TransposeOp>();
 
   PopulatePadPatterns(context, patterns, target);
   PopulateReducePatterns(context, patterns, target);
+  PopulateLegalizeReduceWindowPatterns(context, patterns, target);
   PopulateGatherPatterns(context, patterns, target);
+  PopulateConvPatterns(context, patterns, target);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {

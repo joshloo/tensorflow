@@ -640,6 +640,10 @@ func.func @cbrt_f64(%arg0: tensor<1x32x1xf64>) -> tensor<1x32x1xf64> {
 // mhlo.convolution
 //===----------------------------------------------------------------------===//
 
+//
+// 2D
+//=---
+
 // CHECK-LABEL: conv2d_nhwc_ohwi_nhwc
 func.func @conv2d_nhwc_ohwi_nhwc(%input: tensor<1x256x256x3xf32>, %filter: tensor<2x1x1x3xf32>) -> tensor<1x256x256x2xf32> {
   %0 = mhlo.convolution(%input, %filter)
@@ -900,6 +904,154 @@ func.func @group_conv2d_nhwc_ohwi_nhwc(%arg0: tensor<1x14x14x2240xf32>, %arg1: t
 }
 
 // CHECK-NOT: tfl
+
+// -----
+
+//
+// 3D
+//=---
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc
+func.func @conv3d_ndhwc_dhwio_ndhwc(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    window_strides = dense<1> : tensor<3xi64>,
+    padding = dense<0> : tensor<3x2xi64>,
+    rhs_dilation = dense<1> : tensor<3xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32>
+  func.return %0 : tensor<1x256x256x256x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 1 : i32, stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>, tensor<2xf32>) -> tensor<1x256x256x256x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_no_strides
+func.func @conv3d_ndhwc_dhwio_ndhwc_no_strides(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    padding = dense<0> : tensor<3x2xi64>,
+    rhs_dilation = dense<1> : tensor<3xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32>
+  func.return %0 : tensor<1x256x256x256x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 1 : i32, stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>, tensor<2xf32>) -> tensor<1x256x256x256x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_no_pad
+func.func @conv3d_ndhwc_dhwio_ndhwc_no_pad(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    window_strides = dense<1> : tensor<3xi64>,
+    rhs_dilation = dense<1> : tensor<3xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32>
+  func.return %0 : tensor<1x256x256x256x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 1 : i32, stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>, tensor<2xf32>) -> tensor<1x256x256x256x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_no_lhs_dilation
+func.func @conv3d_ndhwc_dhwio_ndhwc_no_lhs_dilation(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    window_strides = dense<1> : tensor<3xi64>,
+    padding = dense<0> : tensor<3x2xi64>,
+    rhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32>
+  func.return %0 : tensor<1x256x256x256x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 1 : i32, stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>, tensor<2xf32>) -> tensor<1x256x256x256x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_no_rhs_dilation
+func.func @conv3d_ndhwc_dhwio_ndhwc_no_rhs_dilation(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    window_strides = dense<1> : tensor<3xi64>,
+    padding = dense<0> : tensor<3x2xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>) -> tensor<1x256x256x256x2xf32>
+  func.return %0 : tensor<1x256x256x256x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 1 : i32, stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>, tensor<2xf32>) -> tensor<1x256x256x256x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_rhs_dilated
+func.func @conv3d_ndhwc_dhwio_ndhwc_rhs_dilated(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<5x5x5x3x2xf32>) -> tensor<1x248x248x248x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    window_strides = dense<1> : tensor<3xi64>,
+    padding = dense<0> : tensor<3x2xi64>,
+    rhs_dilation = dense<2> : tensor<3xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<5x5x5x3x2xf32>) -> tensor<1x248x248x248x2xf32>
+  func.return %0 : tensor<1x248x248x248x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 2 : i32, dilation_h_factor = 2 : i32, dilation_w_factor = 2 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 1 : i32, stride_h = 1 : i32, stride_w = 1 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<5x5x5x3x2xf32>, tensor<2xf32>) -> tensor<1x248x248x248x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_strided
+func.func @conv3d_ndhwc_dhwio_ndhwc_strided(%input: tensor<1x256x256x256x3xf32>, %filter: tensor<1x1x1x3x2xf32>) -> tensor<1x52x52x52x2xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 1 : i64,
+    window_strides = dense<5> : tensor<3xi64>,
+    padding = dense<0> : tensor<3x2xi64>,
+    rhs_dilation = dense<1> : tensor<3xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>) -> tensor<1x52x52x52x2xf32>
+  func.return %0 : tensor<1x52x52x52x2xf32>
+}
+
+// CHECK: "tfl.conv_3d"(%arg0, %arg1, %cst) <{dilation_d_factor = 1 : i32, dilation_h_factor = 1 : i32, dilation_w_factor = 1 : i32, fused_activation_function = "NONE", padding = "VALID", stride_d = 5 : i32, stride_h = 5 : i32, stride_w = 5 : i32}> : (tensor<1x256x256x256x3xf32>, tensor<1x1x1x3x2xf32>, tensor<2xf32>) -> tensor<1x52x52x52x2xf32>
+
+// -----
+
+// CHECK-LABEL: conv3d_ndhwc_dhwio_ndhwc_grouped_features
+func.func @conv3d_ndhwc_dhwio_ndhwc_grouped_features(%input: tensor<1x256x256x256x6xf32>, %filter: tensor<1x1x1x2x6xf32>) -> tensor<1x256x256x256x6xf32> {
+  %0 = "mhlo.convolution"(%input, %filter) {
+    dimension_numbers = #mhlo.conv<[b, 0, 1, 2, f]x[0, 1, 2, i, o]->[b, 0, 1, 2, f]>,
+    batch_group_count = 1 : i64,
+    feature_group_count = 3 : i64,
+    window_strides = dense<1> : tensor<3xi64>,
+    padding = dense<0> : tensor<3x2xi64>,
+    rhs_dilation = dense<1> : tensor<3xi64>,
+    lhs_dilation = dense<1> : tensor<3xi64>
+  } : (tensor<1x256x256x256x6xf32>, tensor<1x1x1x2x6xf32>) -> tensor<1x256x256x256x6xf32>
+  func.return %0 : tensor<1x256x256x256x6xf32>
+}
+
+
+// Unlike TF, tfl.conv_3d requires kernel_dims[3] == input_dims[4]
+
+// CHECK-NOT: tfl
+// CHECK: mhlo.convolution
 
 // -----
 
@@ -1391,3 +1543,321 @@ func.func @gather_scalar_dynamic_indices(%arg0: tensor<256000xf32>, %arg1: tenso
 }
 
 // CHECK: %0 = "tfl.gather_nd"(%arg0, %arg1) : (tensor<256000xf32>, tensor<?x?x1xi32>) -> tensor<?x?xf32>
+
+// -----
+
+//===------------------------------------------------------------------------===
+// mhlo.reduce_window -> avg pool
+//===------------------------------------------------------------------------===
+
+// CHECK-LABEL: avgpool_same_channel_first
+func.func @avgpool_same_channel_first(%arg0: tensor<4x3x16x16xf32>) -> tensor<4x3x8x8xf32> {
+  %0 = mhlo.constant dense<1.000000e+00> : tensor<4x16x16x3xf32>
+  %1 = mhlo.constant dense<0.000000e+00> : tensor<f32>
+  %2 = "mhlo.transpose"(%arg0) <{permutation = dense<[0, 2, 3, 1]> : tensor<4xi64>}> : (tensor<4x3x16x16xf32>) -> tensor<4x16x16x3xf32>
+  %3 = "mhlo.reduce_window"(%2, %1) <{base_dilations = dense<1> : tensor<4xi64>, padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>}> ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %8 = mhlo.add %arg1, %arg2 : tensor<f32>
+    mhlo.return %8 : tensor<f32>
+  }) : (tensor<4x16x16x3xf32>, tensor<f32>) -> tensor<4x8x8x3xf32>
+  %4 = "mhlo.transpose"(%3) <{permutation = dense<[0, 3, 1, 2]> : tensor<4xi64>}> : (tensor<4x8x8x3xf32>) -> tensor<4x3x8x8xf32>
+  %5 = "mhlo.reduce_window"(%0, %1) <{base_dilations = dense<1> : tensor<4xi64>, padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>}> ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %8 = mhlo.add %arg1, %arg2 : tensor<f32>
+    mhlo.return %8 : tensor<f32>
+  }) : (tensor<4x16x16x3xf32>, tensor<f32>) -> tensor<4x8x8x3xf32>
+  %6 = "mhlo.transpose"(%5) <{permutation = dense<[0, 3, 1, 2]> : tensor<4xi64>}> : (tensor<4x8x8x3xf32>) -> tensor<4x3x8x8xf32>
+  %7 = mhlo.divide %4, %6 : tensor<4x3x8x8xf32>
+  return %7 : tensor<4x3x8x8xf32>
+}
+
+// CHECK:      %[[TPOSED_ARG0:.*]] = "tfl.transpose"(%arg0
+// CHECK-SAME: (tensor<4x3x16x16xf32>, tensor<4xi32>) -> tensor<4x16x16x3xf32>
+// CHECK:      %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%[[TPOSED_ARG0]]) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "SAME", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x3xf32>) -> tensor<4x8x8x3xf32>
+// CHECK:      %[[TPOSED_OUT:.*]] = "tfl.transpose"(%[[POOL_OUT]]
+// CHECK-SAME: (tensor<4x8x8x3xf32>, tensor<4xi32>) -> tensor<4x3x8x8xf32>
+// CHECK:      return %[[TPOSED_OUT]]
+
+// -----
+
+// CHECK-LABEL: avgpool_valid_channel_first
+func.func @avgpool_valid_channel_first(%arg0: tensor<4x3x16x16xf32>) -> tensor<4x3x7x7xf32> {
+  %0 = mhlo.constant dense<9.000000e+00> : tensor<4x3x7x7xf32>
+  %1 = mhlo.constant dense<0.000000e+00> : tensor<f32>
+  %2 = "mhlo.transpose"(%arg0) <{permutation = dense<[0, 2, 3, 1]> : tensor<4xi64>}> : (tensor<4x3x16x16xf32>) -> tensor<4x16x16x3xf32>
+  %3 = "mhlo.reduce_window"(%2, %1) <{base_dilations = dense<1> : tensor<4xi64>, padding = dense<0> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>}> ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+    mhlo.return %6 : tensor<f32>
+  }) : (tensor<4x16x16x3xf32>, tensor<f32>) -> tensor<4x7x7x3xf32>
+  %4 = "mhlo.transpose"(%3) <{permutation = dense<[0, 3, 1, 2]> : tensor<4xi64>}> : (tensor<4x7x7x3xf32>) -> tensor<4x3x7x7xf32>
+  %5 = mhlo.divide %4, %0 : tensor<4x3x7x7xf32>
+  return %5 : tensor<4x3x7x7xf32>
+}
+
+// CHECK:      %[[TPOSED_ARG0:.*]] = "tfl.transpose"(%arg0
+// CHECK-SAME: (tensor<4x3x16x16xf32>, tensor<4xi32>) -> tensor<4x16x16x3xf32>
+// CHECK:      %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%[[TPOSED_ARG0]]) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x3xf32>) -> tensor<4x7x7x3xf32>
+// CHECK:      %[[TPOSED_OUT:.*]] = "tfl.transpose"(%[[POOL_OUT]]
+// CHECK-SAME: (tensor<4x7x7x3xf32>, tensor<4xi32>) -> tensor<4x3x7x7xf32>
+// CHECK:      return %[[TPOSED_OUT]]
+
+// -----
+
+func.func @avgpool_valid(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32> {
+  %0 = mhlo.constant dense<0.0> : tensor<f32>
+  %1 = mhlo.constant dense<9.0> : tensor<4x7x7x8xf32>
+  %2 = "mhlo.reduce_window"(%arg0, %0) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %5 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%5) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<0> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  %3 = mhlo.divide %2, %1 : tensor<4x7x7x8xf32>
+  func.return %3 : tensor<4x7x7x8xf32>
+}
+
+// CHECK: %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32>
+// CHECK: return %[[POOL_OUT]]
+
+// -----
+
+// CHECK-LABEL: avgpool_valid_broadcasted_divisor
+func.func @avgpool_valid_broadcasted_divisor(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32> {
+  %0 = mhlo.constant dense<0.0> : tensor<f32>
+  %1 = mhlo.constant dense<9.0> : tensor<f32>
+  %2 = "mhlo.broadcast_in_dim"(%1) <{broadcast_dimensions = dense<> : tensor<0xi64>}> : (tensor<f32>) -> tensor<4x7x7x8xf32>
+  %3 = "mhlo.reduce_window"(%arg0, %0) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %5 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%5) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<0> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  %4 = mhlo.divide %3, %2 : tensor<4x7x7x8xf32>
+  func.return %4 : tensor<4x7x7x8xf32>
+}
+
+// CHECK: %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32>
+// CHECK: return %[[POOL_OUT]]
+
+// -----
+
+// CHECK-LABEL: avgpool_valid_rw
+func.func @avgpool_valid_rw(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32> {
+  %0 = mhlo.constant dense<1.0> : tensor<4x16x16x8xf32>
+  %1 = mhlo.constant dense<0.0> : tensor<f32>
+  %2 = "mhlo.reduce_window"(%arg0, %1) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 0], [0, 0], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  %3 = "mhlo.reduce_window"(%0, %1) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 0], [0, 0], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  %4 = mhlo.divide %2, %3 : tensor<4x7x7x8xf32>
+  func.return %4 : tensor<4x7x7x8xf32>
+}
+
+// CHECK: %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32>
+// CHECK: return %[[POOL_OUT]]
+
+// -----
+
+// CHECK-LABEL: avgpool_valid_rw_broadcasted_const_lhs
+func.func @avgpool_valid_rw_broadcasted_const_lhs(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32> {
+  %0 = mhlo.constant dense<1.0> : tensor<f32>
+  %1 = "mhlo.broadcast_in_dim"(%0) <{broadcast_dimensions = dense<> : tensor<0xi64>}> : (tensor<f32>) -> tensor<4x16x16x8xf32>
+  %2 = mhlo.constant dense<0.0> : tensor<f32>
+  %3 = "mhlo.reduce_window"(%arg0, %2) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 0], [0, 0], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  %4 = "mhlo.reduce_window"(%1, %2) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 0], [0, 0], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  %5 = mhlo.divide %3, %4 : tensor<4x7x7x8xf32>
+  func.return %5 : tensor<4x7x7x8xf32>
+}
+
+// CHECK: %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32>
+// CHECK: return %[[POOL_OUT]]
+
+// -----
+
+// CHECK-LABEL: avgpool_same
+func.func @avgpool_same(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x8x8x8xf32> {
+  %0 = mhlo.constant dense<1.0> : tensor<4x16x16x8xf32>
+  %1 = mhlo.constant dense<0.0> : tensor<f32>
+  %2 = "mhlo.reduce_window"(%arg0, %1) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x8x8x8xf32>
+  %3 = "mhlo.reduce_window"(%0, %1) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.add %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x8x8x8xf32>
+  %4 = mhlo.divide %2, %3 : tensor<4x8x8x8xf32>
+  func.return %4 : tensor<4x8x8x8xf32>
+}
+
+// CHECK: %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "SAME", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x8x8x8xf32>
+// CHECK: return %[[POOL_OUT]]
+
+// -----
+
+// CHECK-LABEL: avgpool_reshape_broadcast
+func.func @avgpool_reshape_broadcast(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x8x8x8xf32> {
+  %0 = mhlo.constant dense<1.000000e+00> : tensor<1x16x16x1xf32>
+  %1 = mhlo.constant dense<0.000000e+00> : tensor<f32>
+  %2 = "mhlo.reduce_window"(%arg0, %1) ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %7 = mhlo.add %arg1, %arg2 : tensor<f32>
+    mhlo.return %7 : tensor<f32>
+  }) {base_dilations = dense<1> : tensor<4xi64>, padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x8x8x8xf32>
+  %3 = "mhlo.reduce_window"(%0, %1) ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %7 = mhlo.add %arg1, %arg2 : tensor<f32>
+    mhlo.return %7 : tensor<f32>
+  }) {base_dilations = dense<1> : tensor<4xi64>, padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<1x16x16x1xf32>, tensor<f32>) -> tensor<1x8x8x1xf32>
+  %4 = mhlo.reshape %3 : (tensor<1x8x8x1xf32>) -> tensor<8x8xf32>
+  %5 = "mhlo.broadcast_in_dim"(%4) <{broadcast_dimensions = dense<[1, 2]> : tensor<2xi64>}> : (tensor<8x8xf32>) -> tensor<4x8x8x8xf32>
+  %6 = mhlo.divide %2, %5 : tensor<4x8x8x8xf32>
+  return %6 : tensor<4x8x8x8xf32>
+}
+
+// CHECK: %[[POOL_OUT:.*]] = "tfl.average_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "SAME", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x8x8x8xf32>
+// CHECK: return %[[POOL_OUT]]
+
+// -----
+
+//===------------------------------------------------------------------------===
+// mhlo.reduce_window -> max pool
+//===------------------------------------------------------------------------===
+
+// CHECK-LABEL: maxpool_same
+func.func @maxpool_same(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x8x8x8xf32> {
+  // "0xFF800000" represents -INF for f32.
+  %0 = mhlo.constant dense<0xFF800000> : tensor<f32>
+  %1 = "mhlo.reduce_window"(%arg0, %0) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.maximum %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x8x8x8xf32>
+  func.return %1 : tensor<4x8x8x8xf32>
+}
+
+// CHECK: %1 = "tfl.max_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "SAME", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x8x8x8xf32>
+
+// -----
+
+// CHECK-LABEL: maxpool_valid
+func.func @maxpool_valid(%arg0: tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32> {
+  // "0xFF800000" represents -INF for f32.
+  %0 = mhlo.constant dense<0xFF800000> : tensor<f32>
+  %1 = "mhlo.reduce_window"(%arg0, %0) ({
+    ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+      %6 = mhlo.maximum %arg1, %arg2 : tensor<f32>
+      "mhlo.return"(%6) : (tensor<f32>) -> ()
+    }) {
+    base_dilations = dense<1> : tensor<4xi64>,
+    padding = dense<[[0, 0], [0, 0], [0, 0], [0, 0]]> : tensor<4x2xi64>,
+    window_dilations = dense<1> : tensor<4xi64>,
+    window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>,
+    window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>} : (tensor<4x16x16x8xf32>, tensor<f32>) -> tensor<4x7x7x8xf32>
+  func.return %1 : tensor<4x7x7x8xf32>
+}
+
+// CHECK: %1 = "tfl.max_pool_2d"(%arg0) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x8xf32>) -> tensor<4x7x7x8xf32>
+
+// -----
+
+// CHECK-LABEL: maxpool_valid_channel_first
+func.func @maxpool_valid_channel_first(%arg0: tensor<4x3x16x16xf32>) -> tensor<4x3x7x7xf32> {
+  // "0xFF800000" represents -INF for f32.
+  %0 = mhlo.constant dense<0xFF800000> : tensor<f32>
+  %1 = "mhlo.transpose"(%arg0) <{permutation = dense<[0, 2, 3, 1]> : tensor<4xi64>}> : (tensor<4x3x16x16xf32>) -> tensor<4x16x16x3xf32>
+  %2 = "mhlo.reduce_window"(%1, %0) <{base_dilations = dense<1> : tensor<4xi64>, padding = dense<0> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>}> ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %4 = mhlo.maximum %arg1, %arg2 : tensor<f32>
+    mhlo.return %4 : tensor<f32>
+  }) : (tensor<4x16x16x3xf32>, tensor<f32>) -> tensor<4x7x7x3xf32>
+  %3 = "mhlo.transpose"(%2) <{permutation = dense<[0, 3, 1, 2]> : tensor<4xi64>}> : (tensor<4x7x7x3xf32>) -> tensor<4x3x7x7xf32>
+  return %3 : tensor<4x3x7x7xf32>
+}
+
+// CHECK:      %[[TPOSED_ARG0:.*]] = "tfl.transpose"(%arg0
+// CHECK:      "tfl.max_pool_2d"(%[[TPOSED_ARG0]]) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "VALID", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x3xf32>) -> tensor<4x7x7x3xf32>
+// CHECK:      return
+// CHECK-SAME: tensor<4x3x7x7xf32>
+
+// -----
+
+// CHECK-LABEL: maxpool_same_channel_first
+func.func @maxpool_same_channel_first(%arg0: tensor<4x3x16x16xf32>) -> tensor<4x3x8x8xf32> {
+  // "0xFF800000" represents -INF for f32.
+  %0 = mhlo.constant dense<0xFF800000> : tensor<f32>
+  %1 = "mhlo.transpose"(%arg0) <{permutation = dense<[0, 2, 3, 1]> : tensor<4xi64>}> : (tensor<4x3x16x16xf32>) -> tensor<4x16x16x3xf32>
+  %2 = "mhlo.reduce_window"(%1, %0) <{base_dilations = dense<1> : tensor<4xi64>, padding = dense<[[0, 0], [0, 1], [0, 1], [0, 0]]> : tensor<4x2xi64>, window_dilations = dense<1> : tensor<4xi64>, window_dimensions = dense<[1, 3, 3, 1]> : tensor<4xi64>, window_strides = dense<[1, 2, 2, 1]> : tensor<4xi64>}> ({
+  ^bb0(%arg1: tensor<f32>, %arg2: tensor<f32>):
+    %4 = mhlo.maximum %arg1, %arg2 : tensor<f32>
+    mhlo.return %4 : tensor<f32>
+  }) : (tensor<4x16x16x3xf32>, tensor<f32>) -> tensor<4x8x8x3xf32>
+  %3 = "mhlo.transpose"(%2) <{permutation = dense<[0, 3, 1, 2]> : tensor<4xi64>}> : (tensor<4x8x8x3xf32>) -> tensor<4x3x8x8xf32>
+  return %3 : tensor<4x3x8x8xf32>
+}
+
+// CHECK:      %[[TPOSED_ARG0:.*]] = "tfl.transpose"(%arg0
+// CHECK:      "tfl.max_pool_2d"(%[[TPOSED_ARG0]]) <{filter_height = 3 : i32, filter_width = 3 : i32, fused_activation_function = "NONE", padding = "SAME", stride_h = 2 : i32, stride_w = 2 : i32}> : (tensor<4x16x16x3xf32>) -> tensor<4x8x8x3xf32>
+// CHECK:      return
+// CHECK-SAME: tensor<4x3x8x8xf32>
+
