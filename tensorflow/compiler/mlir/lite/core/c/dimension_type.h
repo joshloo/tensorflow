@@ -1,4 +1,4 @@
-/* Copyright 2015 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,9 +13,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_TSL_LIB_CORE_STATUS_TEST_UTIL_H_
-#define TENSORFLOW_TSL_LIB_CORE_STATUS_TEST_UTIL_H_
+#ifndef TENSORFLOW_COMPILER_MLIR_LITE_CORE_C_DIMENSION_TYPE_H_
+#define TENSORFLOW_COMPILER_MLIR_LITE_CORE_C_DIMENSION_TYPE_H_
 
-#include "xla/tsl/lib/core/status_test_util.h"
+// LINT.IfChange
 
-#endif  // TENSORFLOW_TSL_LIB_CORE_STATUS_TEST_UTIL_H_
+#ifdef __cplusplus
+extern "C" {
+#endif  // __cplusplus
+
+
+/// Storage format of each dimension in a sparse tensor.
+typedef enum TfLiteDimensionType {
+  kTfLiteDimDense = 0,
+  kTfLiteDimSparseCSR,
+} TfLiteDimensionType;
+
+#ifdef __cplusplus
+}  // extern "C"
+
+#endif  // __cplusplus
+#endif  // TENSORFLOW_COMPILER_MLIR_LITE_CORE_C_DIMENSION_TYPE_H_
+
+// LINT.ThenChange(//tensorflow/lite/core/c/common.h)
