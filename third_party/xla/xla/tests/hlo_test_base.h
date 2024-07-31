@@ -422,15 +422,6 @@ class HloTestBase : public ManifestCheckingTest {
         ->Clear();
   }
 
-  // Gets the computation/instruction from the given module with the given name.
-  //
-  // This is useful for tests which create HLOs from a string and then want to
-  // inspect a particular computation or instruction.
-  HloComputation* FindComputation(HloModule* module, absl::string_view name);
-  HloInstruction* FindInstruction(HloModule* module, absl::string_view name);
-  // Gets the instruction from the given module with the given opcode.
-  HloInstruction* FindInstruction(HloModule* module, HloOpcode opcode);
-
   // Return an HLO verifier constructed for the test backend.
   HloVerifier& verifier() const { return *hlo_verifier_; }
 
